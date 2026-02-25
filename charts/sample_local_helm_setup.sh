@@ -58,6 +58,10 @@ kubectl apply -f https://raw.githubusercontent.com/$GITHUB_ORG/mcp-gateway/$BRAN
 kubectl apply -f https://raw.githubusercontent.com/$GITHUB_ORG/mcp-gateway/$BRANCH/config/test-servers/server2-httproute.yaml -n mcp-test
 kubectl apply -f https://raw.githubusercontent.com/$GITHUB_ORG/mcp-gateway/$BRANCH/config/test-servers/server2-httproute-ext.yaml -n mcp-test
 
+# Patch test server images, usually used for local dev built images, to pull images from remote
+kubectl patch deployment mcp-test-server1 -n mcp-test --type='json' -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
+kubectl patch deployment mcp-test-server2 -n mcp-test --type='json' -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
+
 # Install MCP Gateway using either local chart or remote OCI chart
 # The chart creates: Gateway, HTTPRoute, NodePort service, Broker, Controller, EnvoyFilter
 if [ "$USE_LOCAL_CHART" = "true" ]; then
@@ -89,7 +93,7 @@ else
         --set gateway.publicHost=mcp.127-0-0-1.sslip.io \
         --set gateway.nodePort.create=true \
         --set gateway.nodePort.mcpPort=30080 \
-        --set envoyFilter.name=mcp-gateway \        
+        --set envoyFilter.name=mcp-gateway \
         --set httpRoute.create=true \
         --set mcpGatewayExtension.gatewayRef.name=mcp-gateway \
         --set mcpGatewayExtension.gatewayRef.namespace=gateway-system
