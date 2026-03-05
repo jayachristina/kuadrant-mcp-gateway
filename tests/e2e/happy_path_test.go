@@ -250,8 +250,78 @@ var _ = Describe("MCP Gateway Registration Happy Path", func() {
 		}
 	})
 
-	It("[Full] should deploy redis and scale up the broker and see sessions shared", func() {
-		Skip("not implemented")
+	It("[Full] Redis session cache persists backend sessions across pod restarts", func() {
+		deploymentName := "mcp-gateway"
+		redisURL := fmt.Sprintf("CACHE_CONNECTION_STRING=redis://redis.%s.svc.cluster.local:6379", SystemNamespace)
+
+		DeferCleanup(func() {
+			By("Cleanup: removing CACHE_CONNECTION_STRING")
+			Expect(SetDeploymentEnv(SystemNamespace, deploymentName, "CACHE_CONNECTION_STRING-")).To(Succeed())
+			Expect(WaitForDeploymentReady(SystemNamespace, deploymentName, 1)).To(Succeed())
+		})
+
+		By("Registering an MCP server")
+		registration := NewMCPServerResourcesWithDefaults("redis-session", k8sClient).Build()
+		testResources = append(testResources, registration.GetObjects()...)
+		registeredServer := registration.Register(ctx)
+
+		By("Ensuring the gateway has registered the server")
+		Eventually(func(g Gomega) {
+			g.Expect(VerifyMCPServerRegistrationReady(ctx, k8sClient, registeredServer.Name, registeredServer.Namespace)).To(BeNil())
+		}, TestTimeoutLong, TestRetryInterval).To(Succeed())
+
+		By("Ensuring the gateway has the tools")
+		WaitForToolsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.ToolPrefix)
+
+		gen, err := GetDeploymentGeneration(SystemNamespace, deploymentName)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Enabling Redis session cache on the gateway")
+		Expect(SetDeploymentEnv(SystemNamespace, deploymentName, redisURL)).To(Succeed())
+
+		By("Waiting for gateway rollout after enabling Redis")
+		Expect(WaitForDeploymentReplicas(SystemNamespace, deploymentName, 1, gen)).To(Succeed())
+
+		By("Waiting for tools to be available after rollout")
+		WaitForToolsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.ToolPrefix)
+
+		By("Calling headers tool to establish a backend session")
+		mcpClient, err := NewMCPGatewayClient(context.Background(), gatewayURL)
+		Expect(err).NotTo(HaveOccurred())
+
+		toolName := fmt.Sprintf("%s%s", registeredServer.Spec.ToolPrefix, "headers")
+		res, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: toolName},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res).NotTo(BeNil())
+
+		backendSessionID := extractBackendSessionID(res)
+		GinkgoWriter.Println("backend session before restart:", backendSessionID)
+		Expect(backendSessionID).NotTo(BeEmpty(), "expected Mcp-Session-Id in response")
+
+		By("Restarting the mcp-gateway deployment and waiting for rollout")
+		Expect(RestartDeploymentAndWait(SystemNamespace, deploymentName)).To(Succeed())
+
+		By("Waiting for tools to be available after pod restart")
+		WaitForToolsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.ToolPrefix)
+
+		By("Calling headers tool again with the same client to verify session was restored from Redis")
+		Eventually(func(g Gomega) {
+			res, err = mcpClient.CallTool(ctx, mcp.CallToolRequest{
+				Params: mcp.CallToolParams{Name: toolName},
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(res).NotTo(BeNil())
+		}, TestTimeoutMedium, TestRetryInterval).Should(Succeed())
+
+		restoredSessionID := extractBackendSessionID(res)
+		GinkgoWriter.Println("backend session after restart:", restoredSessionID)
+		Expect(restoredSessionID).To(Equal(backendSessionID),
+			"backend session should be restored from Redis after pod restart")
+
+		By("Closing the client")
+		Expect(mcpClient.Close()).NotTo(HaveOccurred())
 	})
 
 	It("[Happy] should assign unique mcp-session-ids to concurrent clients and new session on reconnect", func() {
