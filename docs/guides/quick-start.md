@@ -28,7 +28,7 @@ Perfect for evaluation, demos, and getting started quickly.
 Set the release version to install:
 
 ```bash
-export MCP_GATEWAY_BRANCH=release-0.5.0
+export MCP_GATEWAY_BRANCH=release-0.5.1
 ```
 
 Run the automated setup script:
