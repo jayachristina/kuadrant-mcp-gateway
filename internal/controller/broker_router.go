@@ -53,6 +53,7 @@ var managedCommandFlags = []string{
 var managedEnvVarNames = []string{
 	"TRUSTED_HEADER_PUBLIC_KEY",
 	"CACHE_CONNECTION_STRING",
+	sessionSigningKeyEnvVar,
 }
 
 func brokerRouterLabels() map[string]string {
@@ -76,7 +77,19 @@ func (r *MCPGatewayExtensionReconciler) buildBrokerRouterDeployment(mcpExt *mcpv
 	command = append(command, "--mcp-gateway-public-host="+publicHost)
 	command = append(command, "--mcp-router-key="+routerKey(mcpExt))
 
-	var envVars []corev1.EnvVar
+	envVars := []corev1.EnvVar{
+		{
+			Name: sessionSigningKeyEnvVar,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: sessionSigningKeySecretName,
+					},
+					Key: sessionSigningKeyDataKey,
+				},
+			},
+		},
+	}
 	if mcpExt.Spec.TrustedHeadersKey != nil {
 		envVars = append(envVars, corev1.EnvVar{
 			Name: "TRUSTED_HEADER_PUBLIC_KEY",

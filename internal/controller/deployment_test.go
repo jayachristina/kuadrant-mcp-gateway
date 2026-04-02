@@ -606,20 +606,20 @@ func TestBuildBrokerRouterDeployment_TrustedHeadersKey(t *testing.T) {
 	tests := []struct {
 		name             string
 		trustedHeaderKey *mcpv1alpha1.TrustedHeadersKey
-		wantEnvVar       bool
+		wantTrustedEnv   bool
 		wantSecretName   string
 	}{
 		{
-			name:             "no env var when TrustedHeadersKey is nil",
+			name:             "no trusted header env var when TrustedHeadersKey is nil",
 			trustedHeaderKey: nil,
-			wantEnvVar:       false,
+			wantTrustedEnv:   false,
 		},
 		{
-			name: "env var set when TrustedHeadersKey has SecretName",
+			name: "trusted header env var set when TrustedHeadersKey has SecretName",
 			trustedHeaderKey: &mcpv1alpha1.TrustedHeadersKey{
 				SecretName: "my-trusted-key-secret",
 			},
-			wantEnvVar:     true,
+			wantTrustedEnv: true,
 			wantSecretName: "my-trusted-key-secret",
 		},
 	}
@@ -646,28 +646,49 @@ func TestBuildBrokerRouterDeployment_TrustedHeadersKey(t *testing.T) {
 			deployment := r.buildBrokerRouterDeployment(mcpExt, "mcp.example.com", mcpExt.InternalHost(8080))
 			container := deployment.Spec.Template.Spec.Containers[0]
 
-			if !tt.wantEnvVar {
-				if len(container.Env) != 0 {
-					t.Errorf("expected no env vars, got %+v", container.Env)
+			// JWT_SESSION_SIGNING_KEY should always be present
+			var jwtEnv *corev1.EnvVar
+			var trustedEnv *corev1.EnvVar
+			for i := range container.Env {
+				switch container.Env[i].Name {
+				case "JWT_SESSION_SIGNING_KEY":
+					jwtEnv = &container.Env[i]
+				case "TRUSTED_HEADER_PUBLIC_KEY":
+					trustedEnv = &container.Env[i]
+				}
+			}
+
+			if jwtEnv == nil {
+				t.Fatal("expected JWT_SESSION_SIGNING_KEY env var to always be present")
+			}
+			if jwtEnv.ValueFrom == nil || jwtEnv.ValueFrom.SecretKeyRef == nil {
+				t.Fatal("expected JWT_SESSION_SIGNING_KEY to have secretKeyRef")
+			}
+			if jwtEnv.ValueFrom.SecretKeyRef.Name != sessionSigningKeySecretName {
+				t.Errorf("expected JWT secret name %q, got %q", sessionSigningKeySecretName, jwtEnv.ValueFrom.SecretKeyRef.Name)
+			}
+			if jwtEnv.ValueFrom.SecretKeyRef.Key != sessionSigningKeyDataKey {
+				t.Errorf("expected JWT secret key %q, got %q", sessionSigningKeyDataKey, jwtEnv.ValueFrom.SecretKeyRef.Key)
+			}
+
+			if !tt.wantTrustedEnv {
+				if trustedEnv != nil {
+					t.Errorf("expected no TRUSTED_HEADER_PUBLIC_KEY env var, but found one")
 				}
 				return
 			}
 
-			if len(container.Env) != 1 {
-				t.Fatalf("expected 1 env var, got %d", len(container.Env))
+			if trustedEnv == nil {
+				t.Fatal("expected TRUSTED_HEADER_PUBLIC_KEY env var to be present")
 			}
-			env := container.Env[0]
-			if env.Name != "TRUSTED_HEADER_PUBLIC_KEY" {
-				t.Errorf("expected env var name %q, got %q", "TRUSTED_HEADER_PUBLIC_KEY", env.Name)
+			if trustedEnv.ValueFrom == nil || trustedEnv.ValueFrom.SecretKeyRef == nil {
+				t.Fatal("expected TRUSTED_HEADER_PUBLIC_KEY to have secretKeyRef")
 			}
-			if env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil {
-				t.Fatal("expected env var to have secretKeyRef")
+			if trustedEnv.ValueFrom.SecretKeyRef.Name != tt.wantSecretName {
+				t.Errorf("expected secret name %q, got %q", tt.wantSecretName, trustedEnv.ValueFrom.SecretKeyRef.Name)
 			}
-			if env.ValueFrom.SecretKeyRef.Name != tt.wantSecretName {
-				t.Errorf("expected secret name %q, got %q", tt.wantSecretName, env.ValueFrom.SecretKeyRef.Name)
-			}
-			if env.ValueFrom.SecretKeyRef.Key != "key" {
-				t.Errorf("expected secret key %q, got %q", "key", env.ValueFrom.SecretKeyRef.Key)
+			if trustedEnv.ValueFrom.SecretKeyRef.Key != "key" {
+				t.Errorf("expected secret key %q, got %q", "key", trustedEnv.ValueFrom.SecretKeyRef.Key)
 			}
 		})
 	}

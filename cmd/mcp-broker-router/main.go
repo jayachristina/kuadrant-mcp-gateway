@@ -41,11 +41,10 @@ var (
 )
 
 var (
-	mcpConfig            = &config.MCPServersConfig{}
-	mutex                sync.RWMutex
-	logger               = slog.New(slog.NewTextHandler(os.Stdout, nil))
-	scheme               = runtime.NewScheme()
-	defaultJWTSigningKey = "default-not-secure"
+	mcpConfig = &config.MCPServersConfig{}
+	mutex     sync.RWMutex
+	logger    = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	scheme    = runtime.NewScheme()
 )
 
 func init() {
@@ -120,7 +119,7 @@ func main() {
 	)
 	flag.StringVar(&jwtSigningKeyFlag,
 		"session-signing-key",
-		goenv.GetDefault("JWT_SESSION_SIGNING_KEY", defaultJWTSigningKey),
+		goenv.GetDefault("JWT_SESSION_SIGNING_KEY", ""),
 		"JWT signing key for session tokens (env: JWT_SESSION_SIGNING_KEY)",
 	)
 	//"redis://redis.mcp-system.svc.cluster.local:6379
@@ -186,10 +185,9 @@ func main() {
 
 	var jwtSessionMgr *session.JWTManager
 	if jwtSigningKeyFlag == "" {
-		panic("jwt session signing key is empty. Cannot proceed")
-	}
-	if jwtSigningKeyFlag == defaultJWTSigningKey {
-		logger.Warn("jwt session signing key is set to the default value. This is not recommended for production")
+		panic("JWT_SESSION_SIGNING_KEY is required but not set. " +
+			"When running via the controller, this is managed automatically. " +
+			"For standalone use, set the JWT_SESSION_SIGNING_KEY environment variable.")
 	}
 
 	jwtmgr, err := session.NewJWTManager(jwtSigningKeyFlag, sessionDurationInMins, logger, sessionCache)
