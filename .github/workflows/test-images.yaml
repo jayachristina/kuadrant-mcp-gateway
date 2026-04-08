@@ -3,13 +3,13 @@ name: Build Test Server Images
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, 'release-*']
     paths:
       - 'tests/servers/**'
       - 'internal/tests/**'
       - '.github/workflows/test-images.yaml'
   pull_request:
-    branches: [main]
+    branches: [main, 'release-*']
     paths:
       - 'tests/servers/**'
       - 'internal/tests/**'

@@ -71,6 +71,12 @@ func (r *MCPGatewayExtensionReconciler) enqueueMCPGatewayExtForSecret(ctx contex
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{Name: ext.Name, Namespace: ext.Namespace},
 			})
+			continue
+		}
+		if secret.Name == sessionSigningKeySecretName {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: ext.Name, Namespace: ext.Namespace},
+			})
 		}
 	}
 	return requests

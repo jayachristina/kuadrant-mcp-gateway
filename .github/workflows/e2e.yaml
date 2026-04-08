@@ -2,7 +2,7 @@ name: E2E Tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'release-*']
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -13,7 +13,7 @@ on:
       - '.coderabbit.yaml'
       - '.gitignore'
   push:
-    branches: [main]
+    branches: [main, 'release-*']
     paths-ignore:
       - '**.md'
       - 'docs/**'

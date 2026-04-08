@@ -2,7 +2,7 @@ name: Code Style
 
 on:
   pull_request:
-    branches: [ 'main',  ]
+    branches: ['main', 'release-*']
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -48,5 +48,9 @@ jobs:
           go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
           make yq
 
-          # Check if generated resources are synchronized
-          make check
+          # Skip bundle sync on release branches (versions are set by the release process)
+          if [[ "${{ github.base_ref || github.ref_name }}" == release-* ]]; then
+            make check-crd-sync check-rbac-sync
+          else
+            make check
+          fi
