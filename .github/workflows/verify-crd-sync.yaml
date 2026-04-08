@@ -2,14 +2,14 @@ name: Verify CRD Sync
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'release-*']
     paths:
       - 'api/**'
       - 'config/crd/**'
       - 'charts/mcp-gateway/crds/**'
       - 'bundle/manifests/**'
   push:
-    branches: [main]
+    branches: [main, 'release-*']
     paths:
       - 'api/**'
       - 'config/crd/**'
@@ -61,7 +61,13 @@ jobs:
       run: make yq
 
     - name: Verify generated resources are in sync
-      run: make check
+      run: |
+        if [[ "${{ github.base_ref || github.ref_name }}" == release-* ]]; then
+          echo "Skipping bundle sync on release branch (versions are set by the release process)"
+          make check-crd-sync check-rbac-sync
+        else
+          make check
+        fi
 
     - name: Verify Helm chart can be templated
       run: |
