@@ -1,0 +1,44 @@
+name: CI Docs Skip
+
+# Provides pass statuses for required checks when only docs/markdown files change.
+# Without this, docs-only PRs can never merge because the real workflows use
+# paths-ignore and never report a status for the required checks.
+
+on:
+  pull_request:
+    branches: ['main']
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+      - 'LICENSE'
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  build:
+    name: Build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: mcp-gateway
+          - image: mcp-controller
+    steps:
+      - run: echo "Docs-only change, skipping build"
+
+  unit-tests:
+    name: Unit Tests
+    strategy:
+      matrix:
+        go-version: [1.22.x]
+        platform: [ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - run: echo "Docs-only change, skipping tests"
+
+  code-style:
+    name: Code Style Checks
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Docs-only change, skipping code style"
