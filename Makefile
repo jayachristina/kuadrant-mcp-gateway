@@ -48,7 +48,7 @@ BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:$(IMAGE_TAG)
 CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:$(IMAGE_TAG)
 CHANNELS ?= preview
 DEFAULT_CHANNEL ?= preview
-INSTALL_OLM ?= false
+
 
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
@@ -595,19 +595,8 @@ local-env-setup: setup-cluster-base ## Setup complete local demo environment wit
 	@echo "========================================="
 	@echo "Setting up Local Demo Environment"
 	@echo "========================================="
-	# Deploy single gateway for local demo
 	"$(MAKE)" deploy-gateway
-ifeq ($(INSTALL_OLM),true)
-	# Deploy controller via OLM (default)
-	"$(MAKE)" deploy-namespaces
-	kubectl apply -f config/mcp-gateway/overlays/mcp-system/trusted-header-public-key.yaml -n $(MCP_GATEWAY_NAMESPACE)
-	"$(MAKE)" deploy-olm
-	kubectl apply -k config/mcp-gateway/base/ -n $(MCP_GATEWAY_NAMESPACE)
-	@kubectl wait --for=condition=Ready mcpgatewayextension/mcp-gateway-extension -n $(MCP_GATEWAY_NAMESPACE) --timeout=$(WAIT_TIME)
-else
-	# Deploy controller via kustomize (non-OLM fallback)
 	"$(MAKE)" deploy
-endif
 	"${MAKE}" add-jwt-key
 	# Deploy everything server for local dev (use 'make deploy-test-servers' for all servers)
 	"$(MAKE)" deploy-everything-server
