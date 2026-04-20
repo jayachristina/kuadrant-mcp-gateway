@@ -1,65 +1,49 @@
 # Connecting to External MCP Servers
 
-This guide demonstrates how to connect MCP Gateway to external MCP servers using Gateway API and Istio. We'll use the public GitHub MCP server as an example.
+This guide walks through connecting MCP Gateway to an external MCP server. We use the GitHub MCP server as an example, but the pattern applies to any external service.
 
-Clients call your Gateway's hostname, and the Gateway rewrites and routes traffic to the external service.
+The guide has two parts:
+
+1. **Basic setup** — connect to the external server so the broker can discover and list its tools
+2. **Per-user authentication** — add OIDC and let each user supply their own upstream credential for tool calls via a custom header
 
 ## Prerequisites
 
 - MCP Gateway installed and configured
-- Gateway API Provider (Istio) with ServiceEntry and DestinationRule support
-- Network egress access to external MCP server
-- Authentication credentials for the external server (if required)
-- **MCPGatewayExtension** targeting the Gateway (required for MCPServerRegistration to work)
-
-**Note:** If you're trying this locally, `make local-env-setup` meets all prerequisites except the GitHub PAT. The optional AuthPolicy step (Step 6) additionally requires Kuadrant (`make auth-example-setup`).
-
-If you haven't created an MCPGatewayExtension yet, see [Configure MCP Servers](./register-mcp-servers.md#step-1-create-mcpgatewayextension) for instructions.
-
-## About the GitHub MCP Server
-
-The GitHub MCP server (https://api.githubcopilot.com/mcp/) provides programmatic access to GitHub functionality through the Model Context Protocol. It exposes tools for repository management, issues, pull requests, and code operations.
-
-For this example, you'll need a GitHub Personal Access Token with `read:user` permissions. Get one at https://github.com/settings/tokens/new
+- Gateway API provider (Istio) with ServiceEntry and DestinationRule support
+- Network egress access to the external MCP server
+- A GitHub Personal Access Token with `read:user` scope — [create one here](https://github.com/settings/tokens/new)
+- **MCPGatewayExtension** targeting the Gateway (see [Configure MCP Servers](./register-mcp-servers.md#step-1-create-mcpgatewayextension))
 
 ```bash
 export GITHUB_PAT="ghp_YOUR_GITHUB_TOKEN_HERE"
 ```
 
-## Quick Start
+## Local Environment
 
-The fastest way to set up the GitHub MCP server is using the provided script:
+If you have the repository checked out, you can set up a complete local environment with Keycloak, Kuadrant, and an example external MCP server:
 
 ```bash
-# Set your GitHub PAT
-export GITHUB_PAT="ghp_YOUR_GITHUB_TOKEN_HERE"
-
-# Run the setup script
-./config/samples/remote-github/create_resources.sh
+make local-env-setup      # Kind cluster with gateway
+make auth-example-setup   # Only needed for Auth step. Sets up Keycloak + Kuadrant + AuthPolicy prerequisites
 ```
 
-The script will:
-- Validate your GITHUB_PAT environment variable and token format
-- Create ServiceEntry, DestinationRule, HTTPRoute, Secret, and MCPServerRegistration
-- Apply the AuthPolicy for OAuth + API key handling
+`auth-example-setup` creates its own AuthPolicies (`mcp-auth-policy` and `mcps-auth-policy` in `gateway-system`). If you ran that command, remove the existing AuthPolicies before following this guide:
 
-All the sample YAML files are available in `config/samples/remote-github/` for reference or customization. For a detailed explanation of each component, continue reading the manual setup steps below.
+```bash
+kubectl delete authpolicy mcp-auth-policy -n gateway-system --ignore-not-found
+kubectl delete authpolicy mcps-auth-policy -n gateway-system --ignore-not-found
+```
 
-## Overview
+---
 
-To connect to an external MCP server, you need:
-1. ServiceEntry to register the external service in Istio
-2. DestinationRule for TLS and connection policies
-3. HTTPRoute with your hostname that rewrites and routes to the external service
-4. MCPServerRegistration resource to register with MCP Gateway
-5. Secret with authentication credentials
-6. AuthPolicy to handle authentication headers (optional, for OAuth scenarios)
+## Part 1: Basic External MCP Server
 
-The existing Gateway already has a `*.mcp.local` wildcard listener, so we'll use `github.mcp.local` as our internal hostname.
+This section registers the GitHub MCP server behind the gateway. The `credentialRef` provides a static credential used only by the broker to connect to the upstream server and discover available tools. User requests are handled separately — see Part 2 for per-user credentials.
 
-## Step 1: Create ServiceEntry
+### Step 1: Create ServiceEntry
 
-The `ServiceEntry` registers the external service in Istio's service registry:
+Register the external service in Istio's service registry:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -80,9 +64,9 @@ spec:
 EOF
 ```
 
-## Step 2: Create DestinationRule
+### Step 2: Create DestinationRule
 
-Configure TLS settings for the external service:
+Configure TLS for the external service:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -100,9 +84,9 @@ spec:
 EOF
 ```
 
-## Step 3: Create HTTPRoute
+### Step 3: Create HTTPRoute
 
-Create an `HTTPRoute` that matches your internal hostname and routes to the external service using Istio's Hostname backendRef:
+Route traffic from your internal hostname to the external service:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -118,7 +102,7 @@ spec:
     name: mcp-gateway
     namespace: gateway-system
   hostnames:
-  - github.mcp.local  # your internal hostname, matches *.mcp.local listener
+  - github.mcp.local
   rules:
   - matches:
     - path:
@@ -127,7 +111,7 @@ spec:
     filters:
     - type: URLRewrite
       urlRewrite:
-        hostname: api.githubcopilot.com  # rewrite to external hostname
+        hostname: api.githubcopilot.com
     backendRefs:
     - name: api.githubcopilot.com
       kind: Hostname
@@ -136,9 +120,11 @@ spec:
 EOF
 ```
 
-## Step 4: Create Secret with Authentication
+The Gateway's `*.mcp.local` wildcard listener matches `github.mcp.local`. The URLRewrite filter rewrites the host header to the external service.
 
-Create a secret containing your GitHub PAT token with the Bearer prefix:
+### Step 4: Create Secret
+
+Create a secret with your GitHub PAT. The broker uses this credential to connect to the upstream server and discover tools:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -148,18 +134,18 @@ metadata:
   name: github-token
   namespace: mcp-test
   labels:
-    mcp.kuadrant.io/secret: "true"  # required label
+    mcp.kuadrant.io/secret: "true"
 type: Opaque
 stringData:
   token: "Bearer $GITHUB_PAT"
 EOF
 ```
 
-The `mcp.kuadrant.io/secret=true` label is required. Without it the MCPServerRegistration will fail validation.
+> **Note:** The `mcp.kuadrant.io/secret=true` label is required. Without it the MCPServerRegistration will fail validation.
 
-## Step 5: Create the MCPServerRegistration Resource
+### Step 5: Create MCPServerRegistration
 
-Create the `MCPServerRegistration` resource that registers the GitHub MCP server with the gateway:
+Register the GitHub MCP server with the gateway:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -180,16 +166,120 @@ spec:
 EOF
 ```
 
-## Step 6: Create AuthPolicy (Optional)
+### Step 6: Verify
 
-If you're using Kuadrant/Authorino for OAuth authentication, create an `AuthPolicy` to handle authorization headers:
+Wait for the registration to become ready:
+
+```bash
+kubectl get mcpsr -n mcp-test
+```
+
+Expected output:
+
+```text
+NAME     PREFIX    TARGET                PATH   READY   TOOLS   CREDENTIALS    AGE
+github   github_   github-mcp-external   /mcp   True    41      github-token   30s
+```
+
+At this point the broker has discovered the GitHub tools and will list them to clients.
+
+### Step 7: Connect an MCP Client
+
+
+> Note: you may need to open keycloak in your browser and accept the self signed cert if doing this locally.
+
+> Note: If you are using a claude session, you may need to start it with: NODE_TLS_REJECT_UNAUTHORIZED=0 claude if doing this locally. 
+
+Configure your MCP client to connect to the gateway. For Claude Code, add to `.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-gateway": {
+      "type": "http",
+      "url": "http://mcp.127-0-0-1.sslip.io:8001/mcp"
+    }
+  }
+}
+```
+
+After connecting and authenticating with Keycloak (credentials: `mcp`/`mcp`), you should see the GitHub tools listed. However, calling any tool will fail with an authentication error because no user credential is being sent to the upstream GitHub server. Part 2 addresses this.
+
+---
+
+## Part 2: Per-User Authentication with x-github-pat
+
+Part 1 gives the broker access for tool discovery. For users to make actual tool calls, each user supplies their own GitHub PAT via the `x-github-pat` header. This section adds:
+
+- OIDC authentication on the gateway (validates user identity)
+- A token replacement policy on the external server route (swaps the `x-github-pat` header value into the `Authorization` header sent upstream)
+
+### Additional Prerequisites
+
+- OIDC provider configured — see [Authentication](./authentication.md) (Steps 1-2)
+- Kuadrant with Authorino installed — see [Authentication](./authentication.md) (Step 3, Kuadrant install only)
+
+### Step 8: Create AuthPolicy for the Gateway
+
+Apply an AuthPolicy to the gateway that validates OIDC tokens on all MCP requests while allowing unauthenticated access to discovery endpoints:
 
 ```bash
 kubectl apply -f - <<EOF
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
-  name: mcps-auth-policy
+  name: mcp-auth-policy
+  namespace: gateway-system
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    sectionName: mcp
+  when:
+    - predicate: "!request.path.contains('/.well-known')"
+  rules:
+    authentication:
+      'keycloak':
+        jwt:
+          issuerUrl: https://keycloak.127-0-0-1.sslip.io:8002/realms/mcp
+    response:
+      unauthenticated:
+        headers:
+          'WWW-Authenticate':
+            value: Bearer resource_metadata=http://mcp.127-0-0-1.sslip.io:8001/.well-known/oauth-protected-resource/mcp
+        body:
+          value: |
+            {
+              "error": "Unauthorized",
+              "message": "Access denied: Authentication required."
+            }
+      unauthorized:
+        code: 401
+        headers:
+          'WWW-Authenticate':
+            value: Bearer resource_metadata=http://mcp.127-0-0-1.sslip.io:8001/.well-known/oauth-protected-resource/mcp
+        body:
+          value: |
+            {
+              "error": "Forbidden",
+              "message": "Access denied: Unsupported method. New authentication required (401)."
+            }
+EOF
+```
+
+Replace the `issuerUrl` with your OIDC provider's issuer URL unless you are using the local setup environment.
+
+### Step 9: Create AuthPolicy for the External Server Route
+
+Apply an AuthPolicy to the GitHub HTTPRoute that validates the `x-github-pat` header and replaces the `Authorization` header with the user's PAT:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: github-token-replacement-policy
   namespace: mcp-test
 spec:
   targetRef:
@@ -197,56 +287,74 @@ spec:
     kind: HTTPRoute
     name: github-mcp-external
   rules:
+    authorization:
+      "has-github-pat":
+        patternMatching:
+          patterns:
+          - predicate: |
+              request.headers.exists(h, h == "x-github-pat") && request.headers["x-github-pat"] != ""
     response:
+      unauthorized:
+        code: 400
+        body:
+          value: |
+            {
+              "error": "Bad Request",
+              "message": "Missing required x-github-pat header"
+            }
       success:
         headers:
-          authorization:
+          "authorization":
             plain:
-              expression: 'request.headers["authorization"]'
+              expression: |
+                "Bearer " + request.headers["x-github-pat"]
 EOF
 ```
 
-This AuthPolicy passes through the Authorization header from the original request.
+Requests without `x-github-pat` get a 400 response. On success, the PAT replaces the `Authorization` header so the upstream server receives the user's own credential.
 
-**Note:** This step is only required if you're using AuthPolicy for OAuth authentication. For simple bearer token auth, the router handles the Authorization header automatically.
+### Step 10: Update Your MCP Client
 
-## Step 7: Verify the Registration
+Update your MCP client configuration from Step 7 to include the `x-github-pat` header. For Claude Code, update `.claude.json`:
 
-Wait for the MCPServerRegistration to become ready:
+```json
+{
+  "mcpServers": {
+    "mcp-gateway": {
+      "type": "http",
+      "url": "http://mcp.127-0-0-1.sslip.io:8001/mcp",
+      "headers": {
+        "x-github-pat": "<your-github-pat>"
+      }
+    }
+  }
+}
+```
+
+Claude Code handles the OIDC login flow automatically. When the gateway returns a 401 with `WWW-Authenticate`, Claude Code performs OAuth discovery, redirects to the OIDC provider for authentication, and attaches the resulting access token to subsequent requests. The `x-github-pat` header is sent alongside the OIDC token on every request.
+
+### Step 11: Verify
+
+Check that both AuthPolicies are accepted:
 
 ```bash
-kubectl get mcpsr -n mcp-test
+kubectl get authpolicy mcp-auth-policy -n gateway-system
+kubectl get authpolicy github-token-replacement-policy -n mcp-test
 ```
 
-The `github` entry should show `READY = True` and a non-zero `TOOLS` count:
-
-```text
-NAME     PREFIX    TARGET                PATH   READY   TOOLS   CREDENTIALS    AGE
-github   github_   github-mcp-external   /mcp   True    41      github-token   30s
-```
-
-If `READY` is still `False`, wait a few seconds and re-run the command.
-
-## Test Integration
-
-To test tool calls, open the MCP Inspector:
-
-```bash
-make inspect-gateway
-```
-
-In the `Authentication` section, add a HTTP header called `Authorization` with value `Bearer $GITHUB_PAT`.
-After connecting to the Gateway, under `Tools->List Tools`, you should see a list of Github tools with
-prefix `github_`. If everything works, when you run the tool `github_get_me`, you should see the information
-associated with your access token.
+Connect with your MCP client. You should see GitHub tools prefixed with `github_`. Calling the `github_get_me` tool via the configured mcp should return the GitHub user associated with your PAT.
 
 ## Cleanup
 
 ```bash
+# Part 1 resources
 kubectl delete mcpserverregistration github -n mcp-test
 kubectl delete httproute github-mcp-external -n mcp-test
 kubectl delete serviceentry github-mcp-external -n mcp-test
 kubectl delete destinationrule github-mcp-external -n mcp-test
 kubectl delete secret github-token -n mcp-test
-kubectl delete authpolicy mcps-auth-policy -n mcp-test --ignore-not-found
+
+# Part 2 resources (if applied)
+kubectl delete authpolicy mcp-auth-policy -n gateway-system --ignore-not-found
+kubectl delete authpolicy github-token-replacement-policy -n mcp-test --ignore-not-found
 ```

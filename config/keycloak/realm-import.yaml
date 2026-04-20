@@ -642,11 +642,11 @@ data:
         "basic",
         "email",
         "profile",
-        "roles",
-        "offline_access"
+        "roles"
       ],
       "defaultOptionalClientScopes": [
-        "groups"
+        "groups",
+        "offline_access"
       ],
       "components": {
         "org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy": [
