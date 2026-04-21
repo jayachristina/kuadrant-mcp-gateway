@@ -1,7 +1,7 @@
 ##@ Auth Examples
 
 .PHONY: auth-example-setup
-auth-example-setup: cert-manager-install kuadrant-install keycloak-install ## Setup auth example of OAuth2 authentication using Kuadrant, tool list filtering based on RBAC permissions configured in Keycloak, OAuth2 Token Exchange, and integration with Vault (requires: make local-env-setup)
+auth-example-setup: cert-manager-install kuadrant-install keycloak-install ## Setup auth example of OAuth2 authentication using Kuadrant, tool list filtering based on RBAC permissions configured in Keycloak, OAuth2 Token Exchange, and integration with Vault (requires: make local-env-setup or local-env-setup-olm)
 	@echo "========================================="
 	@echo "Setting up OAuth Example"
 	@echo "========================================="
@@ -12,7 +12,7 @@ auth-example-setup: cert-manager-install kuadrant-install keycloak-install ## Se
 	@echo "  - OAuth2 Token Exchange to obtain access tokens for backend services"
 	@echo "  - Integration with HashiCorp Vault (alternative to OAuth2 Token Exchange)"
 	@echo ""
-	@echo "Prerequisites: make local-env-setup should be completed"
+	@echo "Prerequisites: make local-env-setup or make local-env-setup-olm should be completed"
 	@echo ""
 	@echo "Step 1/6: Configuring OAuth environment variables..."
 	@kubectl set env deployment/mcp-gateway \
@@ -30,6 +30,13 @@ auth-example-setup: cert-manager-install kuadrant-install keycloak-install ## Se
 	@echo ""
 	@echo "Step 3/6: Applying AuthPolicy configurations..."
 	@kubectl apply -k ./config/samples/oauth-token-exchange/
+	@if kubectl get namespace kuadrant-system >/dev/null 2>&1; then \
+		KUADRANT_NS=kuadrant-system; \
+	else \
+		KUADRANT_NS=mcp-system; \
+	fi; \
+	kubectl apply -f ./config/samples/oauth-token-exchange/trusted-headers-private-key.yaml -n $$KUADRANT_NS; \
+	kubectl apply -f ./config/samples/oauth-token-exchange/token-exchange-secret.yaml -n $$KUADRANT_NS
 	@kubectl patch mcpgatewayextension mcp-gateway-extension -n mcp-system --type='merge' \
 		-p='{"spec":{"trustedHeadersKey":{"secretName":"trusted-headers-public-key"}}}'
 	@echo "✅ AuthPolicy configurations applied"
@@ -39,7 +46,11 @@ auth-example-setup: cert-manager-install kuadrant-install keycloak-install ## Se
 	@echo "✅ CORS configured"
 	@echo ""
 	@echo "Step 5/6: Patch Authorino deployment to be able to connect to Keycloak..."
-	@./utils/patch-authorino-to-keycloak.sh
+	@if kubectl get namespace kuadrant-system >/dev/null 2>&1; then \
+		./utils/patch-authorino-to-keycloak.sh kuadrant-system; \
+	else \
+		./utils/patch-authorino-to-keycloak.sh mcp-system; \
+	fi
 	@echo "✅ Authorino deployment patched"
 	@echo ""
 	@echo "Step 6/6: Deploying test MCP servers..."

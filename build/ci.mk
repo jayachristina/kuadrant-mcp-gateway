@@ -52,11 +52,20 @@ ci-auth-setup: cert-manager-install kuadrant-install ## Setup auth infrastructur
 		docker exec mcp-gateway-control-plane bash -c "grep -q 'keycloak.127-0-0-1.sslip.io' /etc/hosts || echo '$$GATEWAY_IP keycloak.127-0-0-1.sslip.io' >> /etc/hosts"
 	# apply AuthPolicies: reuse sample secrets + mcp-auth-policy, add simplified mcps policy (no Vault)
 	$(KUBECTL) apply -f ./config/samples/oauth-token-exchange/trusted-header-public-key.yaml
-	$(KUBECTL) apply -f ./config/samples/oauth-token-exchange/trusted-headers-private-key.yaml
+	@if kubectl get namespace kuadrant-system >/dev/null 2>&1; then \
+		KUADRANT_NS=kuadrant-system; \
+	else \
+		KUADRANT_NS=mcp-system; \
+	fi; \
+	$(KUBECTL) apply -f ./config/samples/oauth-token-exchange/trusted-headers-private-key.yaml -n $$KUADRANT_NS
 	$(KUBECTL) apply -f ./config/samples/oauth-token-exchange/tools-list-auth.yaml
 	$(KUBECTL) apply -f ./config/e2e/auth/mcps-auth-policy.yaml
 	# patch Authorino to reach Keycloak
-	./utils/patch-authorino-to-keycloak.sh
+	@if kubectl get namespace kuadrant-system >/dev/null 2>&1; then \
+		./utils/patch-authorino-to-keycloak.sh kuadrant-system; \
+	else \
+		./utils/patch-authorino-to-keycloak.sh mcp-system; \
+	fi
 	@echo "CI auth setup complete"
 
 # Collect debug info on failure
