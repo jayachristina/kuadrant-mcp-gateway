@@ -25,7 +25,7 @@ spec:
   source:
     chart: mcp-gateway
     repoURL: ghcr.io/kuadrant/charts
-    targetRevision: 0.3.0
+    targetRevision: 0.6.0
   syncPolicy:
     automated:
       enabled: true
