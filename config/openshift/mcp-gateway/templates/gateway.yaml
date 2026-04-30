@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gateway.name | quote }}
+  namespace: {{ .Values.gateway.namespace | quote }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  gatewayClassName: {{ .Values.gateway.gatewayClassName | quote }}
+  listeners:
+  - name: mcp
+    hostname: {{ .Values.gateway.publicHost | quote }}
+    port: {{ .Values.gateway.port }}
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: {{ .Values.gateway.tls.secretName | quote }}
+        kind: Secret
+        group: ''
+    allowedRoutes:
+      namespaces:
+        from: All

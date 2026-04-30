@@ -1,0 +1,17 @@
+operator:
+  catalogSource:
+    image: ghcr.io/kuadrant/mcp-controller-catalog:v0.5.1
+  channel: preview
+  sourceNamespace: openshift-marketplace
+
+gateway:
+  name: mcp-gateway
+  namespace: openshift-ingress
+  publicHost: mcp-gateway.example.com
+  gatewayClassName: openshift-default
+  port: 443
+  tls:
+    secretName: ""
+
+mcpGatewayExtension:
+  pollInterval: 60

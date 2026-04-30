@@ -1,0 +1,14 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: mcp-gateway-catalog
+  namespace: openshift-marketplace
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  sourceType: grpc
+  image: {{ .Values.operator.catalogSource.image | quote }}
+  displayName: MCP Gateway
+  grpcPodConfig:
+    securityContextConfig: restricted
+  publisher: Kuadrant
